@@ -85,6 +85,7 @@ class ProvisioningSerializer(object):
                 'mco_password': settings.MCO_PASSWORD,
                 'mco_connector': settings.MCO_CONNECTOR,
                 'mco_enable': 1,
+                'vf_num': cluster_attrs['neutron-mellanox']['vf_num'],
                 'auth_key': "\"%s\"" % cluster_attrs.get('auth_key', '')}}
 
         vlan_splinters = cluster_attrs.get('vlan_splinters', None)
