@@ -544,6 +544,39 @@
           volumes: []
     attributes_metadata:
       editable:
+        neutron_mellanox:
+          metadata:
+            toggleable: false
+            enabled: true
+            label: "Mellanox Neutron components"
+            weight: 50
+          plugin:
+            value: "disabled"
+            label: "Mellanox SR-IOV plugin"
+            weight: 60
+            type: "radio"
+            values:
+              - data: "disabled"
+                label: "Disabled"
+                description: "Do not install Mellanox Neutron plugin"
+              - data: "drivers_only"
+                label: "Ethernet Drivers only"
+                description: "If selected, Mellanox Ethernet drivers will be installed, without using the Mellanox Neutron plugin"
+                restrictions:
+                  - "settings:common.libvirt_type.value != 'kvm'"
+              - data: "ethernet"
+                label: "Ethernet SR-IOV"
+                description: "If selected, Mellanox Ethernet plugin will be installed, Accelerated hypervisor mode using SR-IOV, enable bare metal performance over VMs"
+                restrictions:
+                  - "settings:common.libvirt_type.value != 'kvm'"
+          vf_num:
+            value: "16"
+            label: "Virtual functions number"
+            description: "Number of virtual functions (virtual NICs) to create"
+            weight: 10
+            type: "text"
+            restrictions:
+              - "settings:neutron_mellanox.plugin.value != 'ethernet'"
         kernel_params:
           metadata:
             label: "Kernel parameters"
@@ -704,39 +737,6 @@
               - data: "kernel_lt"
                 label: "EXPERIMENTAL: Use Fedora longterm kernel"
                 description: "Install the Fedora 3.10 longterm kernel instead of the default 2.6.32 kernel. This should remove any need for VLAN Splinters workarounds as the 3.10 kernel has better support for OVS VLANs. This kernel may not work with all hardware platforms, use caution."
-        neutron_mellanox:
-          metadata:
-            toggleable: false
-            enabled: true
-            label: "Mellanox Neutron components"
-            weight: 50
-          plugin:
-            value: "disabled"
-            label: "Mellanox SR-IOV plugin"
-            weight: 60
-            type: "radio"
-            values:
-              - data: "disabled"
-                label: "Disabled"
-                description: "Do not install Mellanox Neutron plugin"
-              - data: "drivers_only"
-                label: "Ethernet Drivers only"
-                description: "If selected, Mellanox Ethernet drivers will be installed, without using the Mellanox Neutron plugin"
-                restrictions:
-                  - "settings:common.libvirt_type.value != 'kvm'"
-              - data: "ethernet"
-                label: "Ethernet SR-IOV"
-                description: "If selected, Mellanox Ethernet plugin will be installed, Accelerated hypervisor mode using SR-IOV, enable bare metal performance over VMs"
-                restrictions:
-                  - "settings:common.libvirt_type.value != 'kvm'"
-          vf_num:
-            value: "16"
-            label: "Virtual functions number"
-            description: "Number of virtual functions (virtual NICs) to create"
-            weight: 10
-            type: "text"
-            restrictions:
-              - "settings:neutron_mellanox.plugin.value != 'ethernet'"
       generated:
         cobbler:
           profile:
