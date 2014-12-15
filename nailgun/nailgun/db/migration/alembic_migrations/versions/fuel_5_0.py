@@ -397,6 +397,8 @@ def upgrade():
                     sa.Column('ip_addr', sa.String(length=25), nullable=True),
                     sa.Column('netmask', sa.String(length=25), nullable=True),
                     sa.Column('state', sa.String(length=25), nullable=True),
+                    sa.Column('driver', sa.String(length=25), nullable=True),
+                    sa.Column('bus_info', sa.String(length=25), nullable=True),
                     sa.Column('parent_id', sa.Integer(), nullable=True),
                     sa.ForeignKeyConstraint(
                         ['node_id'], ['nodes.id'], ondelete='CASCADE'),

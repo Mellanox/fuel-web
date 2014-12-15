@@ -706,7 +706,45 @@ class NeutronNetworkDeploymentSerializer(NetworkDeploymentSerializer):
         if 'iser' in storage_data and storage_data['iser']['value']:
             node_attrs = cls.fix_iser_port(node_attrs, node, nm)
 
+        # Choose default network mode (Infiniband or Ethernet) if not chosen
+        if neutron_mellanox_data['plugin']['value'] != 'disabled' and \
+           'driver' not in node_attrs['neutron_mellanox']:
+            node_attrs = cls.set_mellanox_default_driver(node_attrs, node, nm)
+
         return node_attrs
+
+    @classmethod
+    def set_mellanox_default_driver(cls, node_attrs, node, nm):
+        """Set a default network mode for Mellanox cards, in case no iSER
+        And no SR-IOV modes are chosen.
+        """
+        #Get Ports and drivers
+        interfaces_dict = {}
+        mellanox_drivers = ['eth_ipoib', 'mlx4_en']
+        interfaces_dict['private'] = cls.get_port_and_drivers_by_role(node, nm, 'private')
+        interfaces_dict['storage'] = cls.get_port_and_drivers_by_role(node, nm, 'storage')
+        interfaces_dict['admin'] = cls.get_port_and_drivers_by_role(node, nm, 'admin')
+        drivers = [v['driver'] for v in interfaces_dict.values() \
+            if v['driver'] in mellanox_drivers]
+        if not drivers:
+            raise errors.CanNotFindNetworkForNode(
+                    'Cannot specify Mellanox network mode (Infiniband or Ethernet), \
+                     no network is assigned on Mellanox port')
+        for driver in drivers:
+            if driver != drivers[0]:
+                raise errors.CanNotFindNetworkForNode("Cannot use different \
+                      network modes for Mellanox ports ({0} and \
+                      {1})".format(driver, drivers[0]))
+        node_attrs['neutron_mellanox']['driver'] = drivers[0]
+        return node_attrs
+
+    @classmethod
+    def get_port_and_drivers_by_role(cls, node, nm, port_role):
+        """Returns the port bus and driver by role.
+        """
+        interface = nm.get_node_network_by_netname(node, port_role)['dev']
+        return [{'driver':nic.driver, 'bus_info':nic.bus_info} \
+            for nic in node.interfaces if nic.name == interface][0]
 
     @classmethod
     def set_mellanox_ml2_config(cls, node_attrs, node, nm):
@@ -715,14 +753,24 @@ class NeutronNetworkDeploymentSerializer(NetworkDeploymentSerializer):
         should be called only in case of mellanox SR-IOV plugin usage.
         """
         # Set physical port for SR-IOV virtual functions
-        node_attrs['neutron_mellanox']['physical_port'] = \
-            nm.get_node_network_by_netname(node, 'private')['dev']
+        private_parent = nm.get_node_network_by_netname(node, 'private')['dev']
+        private_parent_drivers = [{'driver':nic.driver, 'bus_info':nic.bus_info} \
+            for nic in node.interfaces if nic.name == private_parent][0]
+        if private_parent_drivers['driver'] == 'eth_ipoib':
+            node_attrs['neutron_mellanox']['physical_port'] = \
+                private_parent_drivers['bus_info']
+        else:
+            node_attrs['neutron_mellanox']['physical_port'] = private_parent
+        node_attrs['neutron_mellanox']['driver'] = \
+            private_parent_drivers['driver']
 
         # Set ML2 eswitch section conf
         ml2_eswitch = {}
         ml2_eswitch['vnic_type'] = 'hostdev'
         ml2_eswitch['apply_profile_patch'] = True
         node_attrs['neutron_mellanox']['ml2_eswitch'] = ml2_eswitch
+        node_attrs['neutron_mellanox']['private_parent_drivers'] = \
+            private_parent_drivers
 
         return node_attrs
 
@@ -734,32 +782,42 @@ class NeutronNetworkDeploymentSerializer(NetworkDeploymentSerializer):
         interfaces.
         """
         # Set a new unique name for iSER virtual port
-        iser_new_name = 'eth_iser0'
-
-        # Add iSER extra params to astute.yaml
-        node_attrs['neutron_mellanox']['storage_parent'] = \
-            nm.get_node_network_by_netname(node, 'storage')['dev']
-        node_attrs['neutron_mellanox']['iser_interface_name'] = iser_new_name
+        storage_parent = nm.get_node_network_by_netname(node, 'storage')['dev']
+        storage_parent_drivers = [{'driver':nic.driver, 'bus_info':nic.bus_info} \
+            for nic in node.interfaces if nic.name == storage_parent][0]
 
         # Get VLAN if exists
         storage_vlan = \
             nm.get_node_network_by_netname(node, 'storage').get('vlan')
+        vlan_name = None
+
+        if storage_parent_drivers['driver'] == 'eth_ipoib':
+            iser_new_name = storage_parent_drivers['bus_info']
+        else:
+            iser_new_name = 'eth_iser0'
+        node_attrs['neutron_mellanox']['driver'] = \
+            storage_parent_drivers['driver']
 
         if storage_vlan:
-            vlan_name = "vlan{0}".format(storage_vlan)
+            if storage_parent_drivers['driver'] == 'eth_ipoib':
+                pkey = format((storage_vlan ^ 0x8000),'04x')
+                storage_parent_drivers['pkey'] = pkey
+                iser_new_name = "{0}.{1}".format(iser_new_name,pkey)
+            else:
+                vlan_name = "vlan{0}".format(storage_vlan)
 
-            # Set storage rule to iSER interface vlan interface
-            node_attrs['network_scheme']['roles']['storage'] = vlan_name
+                # Set storage rule to iSER interface vlan interface
+                node_attrs['network_scheme']['roles']['storage'] = vlan_name
 
-            # Set iSER interface vlan interface
-            node_attrs['network_scheme']['interfaces'][vlan_name] = \
-                {'L2': {'vlan_splinters': 'off'}}
-            node_attrs['network_scheme']['endpoints'][vlan_name] = \
-                node_attrs['network_scheme']['endpoints'].pop('br-storage', {})
-            node_attrs['network_scheme']['endpoints'][vlan_name]['vlandev'] = \
-                iser_new_name
-        else:
+                # Set iSER interface vlan interface
+                node_attrs['network_scheme']['interfaces'][vlan_name] = \
+                    {'L2': {'vlan_splinters': 'off'}}
+                node_attrs['network_scheme']['endpoints'][vlan_name] = \
+                    node_attrs['network_scheme']['endpoints'].pop('br-storage', {})
+                node_attrs['network_scheme']['endpoints'][vlan_name]['vlandev'] = \
+                    iser_new_name
 
+        if vlan_name is None:
             # Set storage rule to iSER port
             node_attrs['network_scheme']['roles']['storage'] = iser_new_name
 
@@ -768,6 +826,11 @@ class NeutronNetworkDeploymentSerializer(NetworkDeploymentSerializer):
                 node_attrs['network_scheme']['endpoints'].pop('br-storage', {})
             node_attrs['network_scheme']['interfaces'][iser_new_name] = \
                 {'L2': {'vlan_splinters': 'off'}}
+
+        # Add iSER extra params to astute.yaml
+        node_attrs['neutron_mellanox']['storage_parent'] = storage_parent
+        node_attrs['neutron_mellanox']['storage_parent_drivers'] = storage_parent_drivers
+        node_attrs['neutron_mellanox']['iser_interface_name'] = iser_new_name
 
         return node_attrs
 

@@ -126,15 +126,43 @@ class ProvisioningSerializer(object):
 
         mellanox_data = cluster_attrs.get('neutron_mellanox')
         if mellanox_data:
+            roles = ['storage', 'private', 'admin']
+            mlnx_types = {'mlx4_en':'2', 'eth_ipoib':'1', 'mismatch':'-1'}
+            mlnx_drivers = []
+            nm = objects.Node.get_network_manager(node)
+            for role in roles:
+                mlnx_drivers.append(cls.get_driver_by_role(nm, node, role))
+            mlnx_drivers = [d for d in mlnx_drivers if d in mlnx_types.keys()]
+            mlnx_driver = mlnx_drivers[0]
+            for d in mlnx_drivers:
+                if d != mlnx_driver:
+                    logger.error('Mismach between {0} and {1} drivers for Node \
+                                  {2}.'.format(d, mlnx_driver, node.full_name))
+
             serialized_node['ks_meta'].update({
+                'mlnx_port_type': mlnx_types.get(mlnx_driver, mlnx_types['mismatch']),
                 'mlnx_vf_num': mellanox_data['vf_num'],
                 'mlnx_plugin_mode': mellanox_data['plugin'],
                 'mlnx_iser_enabled': cluster_attrs['storage']['iser'],
             })
 
+            # Add relevant kernel parameter when using Mellanox SR-IOV
+            # and/or iSER (which works on top of a probed virtual function)
+            # unless it was explicitly added by the user
+            pm_data = serialized_node['ks_meta']['pm_data']
+            if ((mellanox_data['plugin'] == 'ethernet' or
+                    cluster_attrs['storage']['iser'] is True) and
+                    'intel_iommu=' not in pm_data['kernel_params']):
+                        pm_data['kernel_params'] += ' intel_iommu=on'
+
         serialized_node.update(cls.serialize_interfaces(node))
 
         return serialized_node
+
+    @classmethod
+    def get_driver_by_role(cls, nm, node, role):
+        interface = nm.get_node_network_by_netname(node, role)['dev']
+        return [nic.driver for nic in node.nic_interfaces if nic.name == interface][0]
 
     @classmethod
     def serialize_interfaces(cls, node):

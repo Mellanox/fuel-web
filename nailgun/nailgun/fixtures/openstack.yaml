@@ -734,12 +734,12 @@
                   - "settings:storage.iser.value == true"
               - data: "drivers_only"
                 label: "Install only Mellanox drivers"
-                description: "If selected, Mellanox Ethernet drivers will be installed to support networking over Mellanox NIC. Mellanox Neutron plugin will not be installed."
+                description: "If selected, Mellanox drivers will be installed to support networking over Mellanox NIC. Mellanox Neutron plugin will not be installed."
                 restrictions:
                   - "settings:common.libvirt_type.value != 'kvm'"
               - data: "ethernet"
                 label: "Install Mellanox drivers and SR-IOV plugin"
-                description: "If selected, both Mellanox Ethernet drivers and Mellanox network acceleration (Neutron) plugin will be installed."
+                description: "If selected, both Mellanox drivers and Mellanox network acceleration (Neutron) plugin will be installed."
                 restrictions:
                   - "settings:common.libvirt_type.value != 'kvm' or not (cluster:net_provider == 'neutron' and networking_parameters:segmentation_type? == 'vlan')"
           vf_num:
